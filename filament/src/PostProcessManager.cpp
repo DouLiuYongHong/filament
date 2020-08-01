@@ -51,6 +51,17 @@ using namespace backend;
 static constexpr uint8_t kMaxBloomLevels = 12u;
 static_assert(kMaxBloomLevels >= 3, "We require at least 3 bloom levels");
 
+constexpr static float halton(unsigned int i, unsigned int b) noexcept {
+    float f = 1.0f;
+    float r = 0.0f;
+    while (i > 0u) {
+        f /= float(b);
+        r += f * float(i % b);
+        i /= b;
+    }
+    return r;
+}
+
 // ------------------------------------------------------------------------------------------------
 
 PostProcessManager::PostProcessMaterial::PostProcessMaterial() noexcept {
@@ -141,7 +152,17 @@ FMaterialInstance* PostProcessManager::PostProcessMaterial::getMaterialInstance(
 
 // ------------------------------------------------------------------------------------------------
 
-PostProcessManager::PostProcessManager(FEngine& engine) noexcept : mEngine(engine) {
+PostProcessManager::PostProcessManager(FEngine& engine) noexcept
+        : mEngine(engine),
+          mHaltonSamples{
+                  { filament::halton(0, 2), filament::halton(0, 3) },
+                  { filament::halton(1, 2), filament::halton(1, 3) },
+                  { filament::halton(2, 2), filament::halton(2, 3) },
+                  { filament::halton(3, 2), filament::halton(3, 3) },
+                  { filament::halton(4, 2), filament::halton(4, 3) },
+                  { filament::halton(5, 2), filament::halton(5, 3) },
+                  { filament::halton(6, 2), filament::halton(6, 3) },
+                  { filament::halton(7, 2), filament::halton(7, 3) }} {
 }
 
 UTILS_NOINLINE
@@ -172,6 +193,7 @@ void PostProcessManager::init() noexcept {
     registerPostProcessMaterial("colorGrading", MATERIAL(COLORGRADING));
     registerPostProcessMaterial("colorGradingAsSubpass", MATERIAL(COLORGRADINGASSUBPASS));
     registerPostProcessMaterial("fxaa", MATERIAL(FXAA));
+    registerPostProcessMaterial("taa", MATERIAL(TAA));
     registerPostProcessMaterial("dofDownsample", MATERIAL(DOFDOWNSAMPLE));
     registerPostProcessMaterial("dofMipmap", MATERIAL(DOFMIPMAP));
     registerPostProcessMaterial("dofTiles", MATERIAL(DOFTILES));
@@ -1511,6 +1533,47 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::fxaa(FrameGraph& fg,
             });
 
     return ppFXAA.getData().output;
+}
+
+FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
+        FrameGraphId<FrameGraphTexture> input, FrameHistory& frameHistory) noexcept {
+
+    FrameHistoryEntry& entry = frameHistory.back();
+    FrameGraphId<FrameGraphTexture> colorHistory = fg.import("color history", entry.colorDesc, entry.color);
+
+    struct TAAData {
+        FrameGraphId<FrameGraphTexture> color;
+        FrameGraphId<FrameGraphTexture> history;
+        FrameGraphId<FrameGraphTexture> output;
+        FrameGraphRenderTargetHandle rt;
+    };
+    auto& taa = fg.addPass<TAAData>("TAATest",
+            [&](FrameGraph::Builder& builder, auto& data) {
+                auto desc = fg.getDescriptor(input);
+                data.color = builder.sample(input);
+                data.history = builder.sample(colorHistory);
+                data.output = builder.createTexture("TAA output", desc);
+                data.output = builder.write(data.output);
+                data.rt = builder.createRenderTarget("TAA target", {
+                        .attachments = { data.output }
+                });
+            },
+            [=, &frameHistory](FrameGraphPassResources const& resources, auto const& data, DriverApi& driver) {
+                auto output = resources.get(data.rt);
+                auto color = resources.getTexture(data.color);
+                auto history = resources.getTexture(data.history);
+
+                auto const& material = getPostProcessMaterial("taa");
+                FMaterialInstance* mi = material.getMaterialInstance();
+                mi->setParameter("color", color, {});
+                mi->setParameter("history", history, {});
+                commitAndRender(output, material, driver);
+
+                // perform TAA here using colorHistory + input -> output
+                FrameHistoryEntry& current = frameHistory.current();
+                resources.detach(data.output, &current.color, &current.colorDesc);
+            });
+    return taa.getData().output;
 }
 
 FrameGraphId<FrameGraphTexture> PostProcessManager::opaqueBlit(FrameGraph& fg,

@@ -40,6 +40,7 @@
 #include <utils/Systrace.h>
 #include <utils/vector.h>
 
+#include <random>
 #include <assert.h>
 
 // this helps visualize what dynamic-scaling is doing
@@ -325,7 +326,13 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
      * Depth + Color passes
      */
 
-    CameraInfo const& cameraInfo = view.getCameraInfo();
+    CameraInfo cameraInfo = view.getCameraInfo();
+
+    // offset camera for taa
+    float2 offset = ppm.halton(mFrameId);
+    cameraInfo.projection[2][0] += (offset.x * 2.0f - 1.0f) / vp.width;
+    cameraInfo.projection[2][1] += (offset.y * 2.0f - 1.0f) / vp.height;
+
     pass.setCamera(cameraInfo);
     pass.setGeometry(scene.getRenderableData(), view.getVisibleRenderables(), scene.getRenderableUBO());
 
@@ -390,6 +397,16 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
     FrameGraphId<FrameGraphTexture> colorPassOutput =
             refractionPass(fg, config, colorGradingConfig, pass, view);
     FrameGraphId<FrameGraphTexture> input = colorPassOutput;
+
+    // --------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------
+
+    input = ppm.taa(fg, input, view.getFrameHistory());
+
+    // --------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------------
 
     fg.addTrivialSideEffectPass("Finish Color Passes", [&view](DriverApi& driver) {
         // Unbind SSAO sampler, b/c the FrameGraph will delete the texture at the end of the pass.

@@ -17,11 +17,14 @@
 #ifndef TNT_FILAMENT_FRAMEHISTORY_H
 #define TNT_FILAMENT_FRAMEHISTORY_H
 
+#include <fg/FrameGraphHandle.h>
+
 namespace filament {
 
 // This is where we store all the history of a frame
 struct FrameHistoryEntry {
-    // history data goes here
+    FrameGraphTexture color;
+    FrameGraphTexture::Descriptor colorDesc;
 };
 
 /*

@@ -804,8 +804,13 @@ void FView::renderShadowMaps(FEngine& engine, FEngine::DriverApi& driver, Render
 
 void FView::commitFrameHistory(FEngine& engine) noexcept {
     // Here we need to destroy resources in mFrameHistory.back()
+    auto& frameHistory = mFrameHistory;
+    FrameHistoryEntry& last = frameHistory.back();
+    if (last.color.texture) {
+        last.color.destroy(engine.getResourceAllocator());
+    }
     // and then push the new history entry to the history stack
-    mFrameHistory.commit();
+    frameHistory.commit();
 }
 
 void FView::drainFrameHistory(FEngine& engine) noexcept {

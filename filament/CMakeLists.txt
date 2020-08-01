@@ -168,6 +168,7 @@ set(MATERIAL_SRCS
         src/materials/ssao/sao.mat
         src/materials/separableGaussianBlur.mat
         src/materials/antiAliasing/fxaa.mat
+        src/materials/antiAliasing/taa.mat
 )
 
 # Embed the binary resource blob for materials.

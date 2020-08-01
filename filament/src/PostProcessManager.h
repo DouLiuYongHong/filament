@@ -21,6 +21,8 @@
 
 #include "private/backend/DriverApiForward.h"
 
+#include "FrameHistory.h"
+
 #include <fg/FrameGraphHandle.h>
 
 #include <backend/DriverEnums.h>
@@ -89,6 +91,9 @@ public:
             FrameGraphId<FrameGraphTexture> input, backend::TextureFormat outFormat,
             bool translucent) noexcept;
 
+    FrameGraphId<FrameGraphTexture> taa(FrameGraph& fg,
+            FrameGraphId<FrameGraphTexture> input, FrameHistory& frameHistory) noexcept;
+
     // Blit/rescaling/resolves
     FrameGraphId<FrameGraphTexture> opaqueBlit(FrameGraph& fg,
             FrameGraphId<FrameGraphTexture> input, FrameGraphTexture::Descriptor outDesc,
@@ -103,6 +108,10 @@ public:
 
     backend::Handle<backend::HwTexture> getOneTexture() const { return mDummyOneTexture; }
     backend::Handle<backend::HwTexture> getZeroTexture() const { return mDummyZeroTexture; }
+
+    math::float2 halton(size_t index) const noexcept {
+        return mHaltonSamples[index & 7u];
+    }
 
 private:
     FEngine& mEngine;
@@ -178,7 +187,10 @@ private:
     backend::Handle<backend::HwTexture> mDummyZeroTexture;
 
     size_t mSeparableGaussianBlurKernelStorageSize = 0;
+
+    const math::float2 mHaltonSamples[8];
 };
+
 
 } // namespace filament
 
