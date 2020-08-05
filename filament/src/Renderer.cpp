@@ -329,9 +329,13 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
     CameraInfo cameraInfo = view.getCameraInfo();
 
     // offset camera for taa
-    float2 offset = ppm.halton(mFrameId);
-    cameraInfo.projection[2][0] += (offset.x * 2.0f - 1.0f) / vp.width;
-    cameraInfo.projection[2][1] += (offset.y * 2.0f - 1.0f) / vp.height;
+    if (fxaa) {
+        const float2 jitter = (ppm.halton(mFrameId) * 2.0f - 1.0f) / float2{ vp.width, vp.height };
+        auto& historyEntry = view.getFrameHistory().getCurrent();
+        historyEntry.projection = cameraInfo.projection * (cameraInfo.view * cameraInfo.worldOrigin);
+        historyEntry.jitter = ppm.halton(mFrameId) / float2{ vp.width, vp.height };
+        cameraInfo.projection[2].xy += jitter;
+    }
 
     pass.setCamera(cameraInfo);
     pass.setGeometry(scene.getRenderableData(), view.getVisibleRenderables(), scene.getRenderableUBO());
@@ -402,7 +406,9 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
     // --------------------------------------------------------------------------------------------
     // --------------------------------------------------------------------------------------------
 
-    input = ppm.taa(fg, input, view.getFrameHistory());
+    if (fxaa) {
+        input = ppm.taa(fg, input, view.getFrameHistory());
+    }
 
     // --------------------------------------------------------------------------------------------
     // --------------------------------------------------------------------------------------------

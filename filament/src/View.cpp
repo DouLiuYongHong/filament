@@ -806,9 +806,8 @@ void FView::commitFrameHistory(FEngine& engine) noexcept {
     // Here we need to destroy resources in mFrameHistory.back()
     auto& frameHistory = mFrameHistory;
     FrameHistoryEntry& last = frameHistory.back();
-    if (last.color.texture) {
-        last.color.destroy(engine.getResourceAllocator());
-    }
+    last.color.destroy(engine.getResourceAllocator());
+
     // and then push the new history entry to the history stack
     frameHistory.commit();
 }

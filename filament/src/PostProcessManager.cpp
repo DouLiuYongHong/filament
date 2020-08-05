@@ -155,14 +155,22 @@ FMaterialInstance* PostProcessManager::PostProcessMaterial::getMaterialInstance(
 PostProcessManager::PostProcessManager(FEngine& engine) noexcept
         : mEngine(engine),
           mHaltonSamples{
-                  { filament::halton(0, 2), filament::halton(0, 3) },
-                  { filament::halton(1, 2), filament::halton(1, 3) },
-                  { filament::halton(2, 2), filament::halton(2, 3) },
-                  { filament::halton(3, 2), filament::halton(3, 3) },
-                  { filament::halton(4, 2), filament::halton(4, 3) },
-                  { filament::halton(5, 2), filament::halton(5, 3) },
-                  { filament::halton(6, 2), filament::halton(6, 3) },
-                  { filament::halton(7, 2), filament::halton(7, 3) }} {
+                  { filament::halton( 0, 2), filament::halton( 0, 3) },
+                  { filament::halton( 1, 2), filament::halton( 1, 3) },
+                  { filament::halton( 2, 2), filament::halton( 2, 3) },
+                  { filament::halton( 3, 2), filament::halton( 3, 3) },
+                  { filament::halton( 4, 2), filament::halton( 4, 3) },
+                  { filament::halton( 5, 2), filament::halton( 5, 3) },
+                  { filament::halton( 6, 2), filament::halton( 6, 3) },
+                  { filament::halton( 7, 2), filament::halton( 7, 3) },
+                  { filament::halton( 8, 2), filament::halton( 8, 3) },
+                  { filament::halton( 9, 2), filament::halton( 9, 3) },
+                  { filament::halton(10, 2), filament::halton(10, 3) },
+                  { filament::halton(11, 2), filament::halton(11, 3) },
+                  { filament::halton(12, 2), filament::halton(12, 3) },
+                  { filament::halton(13, 2), filament::halton(13, 3) },
+                  { filament::halton(14, 2), filament::halton(14, 3) },
+                  { filament::halton(15, 2), filament::halton(15, 3) }} {
 }
 
 UTILS_NOINLINE
@@ -1538,11 +1546,16 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::fxaa(FrameGraph& fg,
 FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
         FrameGraphId<FrameGraphTexture> input, FrameHistory& frameHistory) noexcept {
 
-    FrameHistoryEntry& entry = frameHistory.back();
+    FrameHistoryEntry const& entry = frameHistory[0];
     FrameGraphId<FrameGraphTexture> colorHistory = fg.import("color history", entry.colorDesc, entry.color);
+
+    Blackboard& blackboard = fg.getBlackboard();
+    auto depth = blackboard.get<FrameGraphTexture>("depth");
+    assert(depth.isValid());
 
     struct TAAData {
         FrameGraphId<FrameGraphTexture> color;
+        FrameGraphId<FrameGraphTexture> depth;
         FrameGraphId<FrameGraphTexture> history;
         FrameGraphId<FrameGraphTexture> output;
         FrameGraphRenderTargetHandle rt;
@@ -1551,6 +1564,7 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
             [&](FrameGraph::Builder& builder, auto& data) {
                 auto desc = fg.getDescriptor(input);
                 data.color = builder.sample(input);
+                data.depth = builder.sample(depth);
                 data.history = builder.sample(colorHistory);
                 data.output = builder.createTexture("TAA output", desc);
                 data.output = builder.write(data.output);
@@ -1559,18 +1573,36 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
                 });
             },
             [=, &frameHistory](FrameGraphPassResources const& resources, auto const& data, DriverApi& driver) {
+
+                constexpr mat4f normalizedToClip = {
+                        float4{  2,  0,  0, 0 },
+                        float4{  0,  2,  0, 0 },
+                        float4{  0,  0,  2, 0 },
+                        float4{ -1, -1, -1, 1 },
+                };
+
+                FrameHistoryEntry& current = frameHistory.getCurrent();
+
                 auto output = resources.get(data.rt);
                 auto color = resources.getTexture(data.color);
+                auto depth = resources.getTexture(data.depth);
                 auto history = resources.getTexture(data.history);
 
                 auto const& material = getPostProcessMaterial("taa");
                 FMaterialInstance* mi = material.getMaterialInstance();
-                mi->setParameter("color", color, {});
-                mi->setParameter("history", history, {});
+                mi->setParameter("color",   color,   { .filterMin = SamplerMinFilter::LINEAR, .filterMag = SamplerMagFilter::LINEAR });
+                mi->setParameter("depth",   depth,   { .filterMin = SamplerMinFilter::NEAREST });
+                mi->setParameter("jitter",  current.jitter);
+                mi->setParameter("alpha",  1.0f / 16.0f);
+                mi->setParameter("history", history, { .filterMin = SamplerMinFilter::LINEAR, .filterMag = SamplerMagFilter::LINEAR });
+                mi->setParameter("reprojection",
+                        frameHistory[0].projection *
+                        inverse(current.projection) *
+                        normalizedToClip);
+
                 commitAndRender(output, material, driver);
 
                 // perform TAA here using colorHistory + input -> output
-                FrameHistoryEntry& current = frameHistory.current();
                 resources.detach(data.output, &current.color, &current.colorDesc);
             });
     return taa.getData().output;

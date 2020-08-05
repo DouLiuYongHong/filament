@@ -110,7 +110,7 @@ public:
     backend::Handle<backend::HwTexture> getZeroTexture() const { return mDummyZeroTexture; }
 
     math::float2 halton(size_t index) const noexcept {
-        return mHaltonSamples[index & 7u];
+        return mHaltonSamples[index & 0xFu];
     }
 
 private:
@@ -188,7 +188,7 @@ private:
 
     size_t mSeparableGaussianBlurKernelStorageSize = 0;
 
-    const math::float2 mHaltonSamples[8];
+    const math::float2 mHaltonSamples[16];
 };
 
 

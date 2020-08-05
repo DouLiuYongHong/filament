@@ -7,7 +7,26 @@ material {
         },
         {
             type : sampler2d,
+            name : depth,
+            precision: high
+        },
+        {
+            type : float2,
+            name : jitter,
+            precision: high
+        },
+        {
+            type : float,
+            name : alpha
+        },
+        {
+            type : sampler2d,
             name : history
+        },
+        {
+            type : mat4,
+            name : reprojection,
+            precision: high
         }
     ],
     variables : [
@@ -26,14 +45,39 @@ vertex {
 
 fragment {
 
+highp vec2 unjitter(const highp vec2 uv) {
+    return uv - materialParams.jitter;
+}
+
+float luma(const vec3 color) {
+    return dot(color, vec3(0.2126, 0.7152, 0.0722));
+    // return max3(color);
+}
+
 void postProcess(inout PostProcessInputs postProcess) {
     highp vec2 uv = variable_vertex.xy; // interpolated to pixel center
+    vec4 color = textureLod(materialParams_color, unjitter(uv), 0.0);
+    float depth = textureLod(materialParams_depth, uv, 0.0).r;
 
-    vec4 color = textureLod(materialParams_color, uv, 0.0);
+    // tonemap input
+    color.rgb *= 1.0 / (1.0 + luma(color.rgb));
+
+    // reproject history to current frame
+    highp vec4 q = materialParams.reprojection * vec4(uv, depth, 1.0);
+    uv = (q.xy * (1.0 / q.w)) * 0.5 + 0.5;
     vec4 history = textureLod(materialParams_history, uv, 0.0);
-    float alpha = 0.05;
 
-    postProcess.color = color * alpha + history * (1.0 - alpha);
+    // tonemap history
+    history.rgb *= 1.0 / (1.0 + luma(history.rgb));
+
+    // combine history and current frame
+    vec4 result = mix(history, color, materialParams.alpha);
+
+    // untonemap result
+    result.rgb *= 1.0 / (1.0 - luma(result.rgb));
+
+    // store result (which will becomes new history)
+    postProcess.color = result;
 }
 
 }
