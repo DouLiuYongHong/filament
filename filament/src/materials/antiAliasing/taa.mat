@@ -45,33 +45,143 @@ vertex {
 
 fragment {
 
+// accurate box clipping
+#define BOX_CLIPPING_ACCURATE   0
+// always clip towards box center
+#define BOX_CLIPPING_CENTER     1
+// clamping
+#define BOX_CLIPPING_CLAMP      2
+// no clipping (for debugging only)
+#define BOX_CLIPPING_NONE       3
+
+#if defined(TARGET_MOBILE)
+#define BOX_CLIPPING            BOX_CLIPPING_CENTER
+#else
+#define BOX_CLIPPING            BOX_CLIPPING_ACCURATE
+#endif
+
+#define PREVENT_FLICKERING      1
+
 highp vec2 unjitter(const highp vec2 uv) {
     return uv - materialParams.jitter;
 }
 
 float luma(const vec3 color) {
+#if defined(TARGET_MOBILE)
+    return max3(color);
+#else
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
-    // return max3(color);
+#endif
+}
+
+vec3 RGB_YCoCg(const vec3 c) {
+    return vec3(
+         c.r * 0.25 + c.g * 0.5 + c.b * 0.25,
+         c.r * 0.5              - c.b * 0.5,
+        -c.r * 0.25 + c.g * 0.5 - c.b * 0.25
+    );
+}
+
+vec3 YCoCg_RGB(const vec3 c) {
+    return saturate(vec3(
+            c.r + c.g - c.b,
+            c.r       + c.b,
+            c.r - c.g - c.b
+    ));
+}
+
+// clip the (c, h) segment to a box
+vec4 clipToBox(const int quality,
+        const vec3 boxmin,  const vec3 boxmax, const vec4 c, const vec4 h) {
+    const float epsilon = 0.0001;
+    if (quality == BOX_CLIPPING_ACCURATE) {
+        vec4 r = h - c;
+        vec3 rmax = (boxmax - c.rgb) + epsilon;
+        vec3 rmin = (boxmin - c.rgb) - epsilon;
+        if (r.g > rmax.g) {
+            r *= rmax.g / r.g;
+        } else if (r.g < rmin.g) {
+            r *= rmin.g / r.g;
+        }
+        if (r.r > rmax.r) {
+            r *= rmax.r / r.r;
+        } else if (r.r < rmin.r) {
+            r *= rmin.r / r.r;
+        }
+        if (r.b > rmax.b) {
+            r *= rmax.b / r.b;
+        } else if (r.b < rmin.b) {
+            r *= rmin.b / r.b;
+        }
+        return c + r;
+    } else if (quality == BOX_CLIPPING_CENTER) {
+        vec3 center = 0.5 * (boxmax + boxmin);
+        vec3 extent = 0.5 * (boxmax - boxmin) + epsilon;
+        vec4 v_clip = h - vec4(center, c.a);
+        vec3 a_unit = abs(v_clip.rgb * (1.0 / extent));
+        float ma_unit = max(a_unit.r, max(a_unit.g, a_unit.b));
+        if (ma_unit > 1.0) {
+            return vec4(center, c.a) + v_clip * (1.0 / ma_unit);
+        }
+        return h;
+    } else if (quality == BOX_CLIPPING_CLAMP) {
+        return vec4(clamp(h.rgb, boxmin, boxmax), h.a);
+    }
+    return h;
 }
 
 void postProcess(inout PostProcessInputs postProcess) {
     highp vec2 uv = variable_vertex.xy; // interpolated to pixel center
-    vec4 color = textureLod(materialParams_color, unjitter(uv), 0.0);
+    vec4 color = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 0,  0));
     float depth = textureLod(materialParams_depth, uv, 0.0).r;
 
-    // tonemap input
-    color.rgb *= 1.0 / (1.0 + luma(color.rgb));
+    // build the history clamping box
+    vec3 s[9];
+    s[0] = textureLodOffset(materialParams_color, uv, 0.0, ivec2(-1, -1)).rgb;
+    s[1] = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 0, -1)).rgb;
+    s[2] = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 1, -1)).rgb;
+    s[3] = textureLodOffset(materialParams_color, uv, 0.0, ivec2(-1,  0)).rgb;
+    s[4] = color.rgb;
+    s[5] = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 1,  0)).rgb;
+    s[6] = textureLodOffset(materialParams_color, uv, 0.0, ivec2(-1,  1)).rgb;
+    s[7] = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 0,  1)).rgb;
+    s[8] = textureLodOffset(materialParams_color, uv, 0.0, ivec2( 1,  1)).rgb;
+
+    vec3 box5min = min(s[4], min(min(s[1], s[3]), min(s[5], s[7])));
+    vec3 box5max = max(s[4], max(max(s[1], s[3]), max(s[5], s[7])));
+    vec3 box9min = min(box5min, min(min(s[0], s[2]), min(s[6], s[8])));
+    vec3 box9max = max(box5max, max(max(s[0], s[2]), max(s[6], s[8])));
+    vec3 boxmin = (box5min + box9min) * 0.5;
+    vec3 boxmax = (box5max + box9max) * 0.5;
+
 
     // reproject history to current frame
     highp vec4 q = materialParams.reprojection * vec4(uv, depth, 1.0);
     uv = (q.xy * (1.0 / q.w)) * 0.5 + 0.5;
     vec4 history = textureLod(materialParams_history, uv, 0.0);
+    // TODO: filter history
+    // TODO: filter unjittered input w/ blackman-harris
 
-    // tonemap history
-    history.rgb *= 1.0 / (1.0 + luma(history.rgb));
+    // TODO: do clamping in YCoCg
+    // history clamping
+    history = clipToBox(BOX_CLIPPING, boxmin, boxmax, color, history);
+
+    // tonemapping for handling HDR
+    float lumaColor = luma(color.rgb);
+    float lumaHistory = luma(history.rgb);
+    color.rgb   *= 1.0 / (1.0 + lumaColor);
+    history.rgb *= 1.0 / (1.0 + lumaHistory);
+
+    float alpha = materialParams.alpha;
+#if PREVENT_FLICKERING
+    // [Lottes] prevents flickering by modulating the blend weight by the difference in luma
+    float diff = 1.0 - abs(lumaColor - lumaHistory) / (0.001 + max(lumaColor, lumaHistory));
+    diff *= diff;
+    alpha *= diff;
+#endif
 
     // combine history and current frame
-    vec4 result = mix(history, color, materialParams.alpha);
+    vec4 result = mix(history, color, alpha);
 
     // untonemap result
     result.rgb *= 1.0 / (1.0 - luma(result.rgb));

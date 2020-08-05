@@ -1547,7 +1547,13 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
         FrameGraphId<FrameGraphTexture> input, FrameHistory& frameHistory) noexcept {
 
     FrameHistoryEntry const& entry = frameHistory[0];
-    FrameGraphId<FrameGraphTexture> colorHistory = fg.import("color history", entry.colorDesc, entry.color);
+    FrameGraphId<FrameGraphTexture> colorHistory;
+    if (!entry.color.texture) {
+        // if we don't have a history yet, just use the current color buffer as history
+        colorHistory = input;
+    } else {
+        colorHistory = fg.import("TAA history", entry.colorDesc, entry.color);
+    }
 
     Blackboard& blackboard = fg.getBlackboard();
     auto depth = blackboard.get<FrameGraphTexture>("depth");
@@ -1560,7 +1566,7 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
         FrameGraphId<FrameGraphTexture> output;
         FrameGraphRenderTargetHandle rt;
     };
-    auto& taa = fg.addPass<TAAData>("TAATest",
+    auto& taa = fg.addPass<TAAData>("TAA",
             [&](FrameGraph::Builder& builder, auto& data) {
                 auto desc = fg.getDescriptor(input);
                 data.color = builder.sample(input);
@@ -1590,7 +1596,7 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
 
                 auto const& material = getPostProcessMaterial("taa");
                 FMaterialInstance* mi = material.getMaterialInstance();
-                mi->setParameter("color",   color,   { .filterMin = SamplerMinFilter::LINEAR, .filterMag = SamplerMagFilter::LINEAR });
+                mi->setParameter("color",   color,   { .filterMin = SamplerMinFilter::NEAREST });
                 mi->setParameter("depth",   depth,   { .filterMin = SamplerMinFilter::NEAREST });
                 mi->setParameter("jitter",  current.jitter);
                 mi->setParameter("alpha",  1.0f / 16.0f);
