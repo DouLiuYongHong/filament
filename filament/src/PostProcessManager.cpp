@@ -1587,7 +1587,25 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
                         float4{ -1, -1, -1, 1 },
                 };
 
+                constexpr float2 sampleOffsets[9] = {
+                        { -1.0f, -1.0f }, {  0.0f, -1.0f }, {  1.0f, -1.0f },
+                        { -1.0f,  0.0f }, {  0.0f,  0.0f }, {  1.0f,  0.0f },
+                        { -1.0f,  1.0f }, {  0.0f,  1.0f }, {  1.0f,  1.0f },
+                };
+
                 FrameHistoryEntry& current = frameHistory.getCurrent();
+
+                float sum = 0.0;
+                float weights[9];
+                for (size_t i = 0; i < 9; i++) {
+                    float2 d = sampleOffsets[i] - current.jitter;
+                    d *= 1.0 / 1.0;     // TODO: this needs to be a user parameter
+                    weights[i] = std::exp(-2.29f * (d.x * d.x + d.y * d.y));
+                    sum += weights[i];
+                }
+                for (auto& w : weights) {
+                    w /= sum;
+                }
 
                 auto output = resources.get(data.rt);
                 auto color = resources.getTexture(data.color);
@@ -1598,9 +1616,9 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
                 FMaterialInstance* mi = material.getMaterialInstance();
                 mi->setParameter("color",   color,   { .filterMin = SamplerMinFilter::NEAREST });
                 mi->setParameter("depth",   depth,   { .filterMin = SamplerMinFilter::NEAREST });
-                mi->setParameter("jitter",  current.jitter);
                 mi->setParameter("alpha",  0.04f); // TODO: this needs to be a user parameter
                 mi->setParameter("history", history, { .filterMin = SamplerMinFilter::LINEAR, .filterMag = SamplerMagFilter::LINEAR });
+                mi->setParameter("filterWeights",  weights, 9);
                 mi->setParameter("reprojection",
                         frameHistory[0].projection *
                         inverse(current.projection) *

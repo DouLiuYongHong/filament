@@ -332,11 +332,11 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
 
     // offset camera for taa
     if (taa) {
-        const float2 jitter = (ppm.halton(mFrameId) * 2.0f - 1.0f) / float2{ vp.width, vp.height };
+        const float2 jitter = (ppm.halton(mFrameId) - 0.5f);
         auto& historyEntry = view.getFrameHistory().getCurrent();
         historyEntry.projection = cameraInfo.projection * (cameraInfo.view * cameraInfo.worldOrigin);
-        historyEntry.jitter = ppm.halton(mFrameId) / float2{ vp.width, vp.height };
-        cameraInfo.projection[2].xy += jitter;
+        historyEntry.jitter = jitter;
+        cameraInfo.projection[2].xy -= jitter * (2.0f / float2{ svp.width, svp.height });
     }
 
     pass.setCamera(cameraInfo);
