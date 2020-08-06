@@ -1599,7 +1599,7 @@ FrameGraphId<FrameGraphTexture> PostProcessManager::taa(FrameGraph& fg,
                 mi->setParameter("color",   color,   { .filterMin = SamplerMinFilter::NEAREST });
                 mi->setParameter("depth",   depth,   { .filterMin = SamplerMinFilter::NEAREST });
                 mi->setParameter("jitter",  current.jitter);
-                mi->setParameter("alpha",  1.0f / 16.0f);
+                mi->setParameter("alpha",  0.04f); // TODO: this needs to be a user parameter
                 mi->setParameter("history", history, { .filterMin = SamplerMinFilter::LINEAR, .filterMag = SamplerMagFilter::LINEAR });
                 mi->setParameter("reprojection",
                         frameHistory[0].projection *

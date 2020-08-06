@@ -199,6 +199,7 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
     bool colorGrading = hasPostProcess;
     bool dithering = view.getDithering() == View::Dithering::TEMPORAL;
     bool fxaa = view.getAntiAliasing() == View::AntiAliasing::FXAA;
+    bool taa = true;
     uint8_t msaa = view.getSampleCount();
     float2 scale = view.updateScale(mFrameInfoManager.getLastFrameInfo());
     const View::QualityLevel upscalingQuality = view.getDynamicResolutionOptions().quality;
@@ -215,6 +216,7 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
         colorGrading = false;
         dithering = false;
         fxaa = false;
+        taa = false;
         scale = 1.0f;
     }
 
@@ -329,7 +331,7 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
     CameraInfo cameraInfo = view.getCameraInfo();
 
     // offset camera for taa
-    if (fxaa) {
+    if (taa) {
         const float2 jitter = (ppm.halton(mFrameId) * 2.0f - 1.0f) / float2{ vp.width, vp.height };
         auto& historyEntry = view.getFrameHistory().getCurrent();
         historyEntry.projection = cameraInfo.projection * (cameraInfo.view * cameraInfo.worldOrigin);
@@ -402,17 +404,9 @@ void FRenderer::renderJob(ArenaScope& arena, FView& view) {
             refractionPass(fg, config, colorGradingConfig, pass, view);
     FrameGraphId<FrameGraphTexture> input = colorPassOutput;
 
-    // --------------------------------------------------------------------------------------------
-    // --------------------------------------------------------------------------------------------
-    // --------------------------------------------------------------------------------------------
-
-    if (fxaa) {
+    if (taa) {
         input = ppm.taa(fg, input, view.getFrameHistory());
     }
-
-    // --------------------------------------------------------------------------------------------
-    // --------------------------------------------------------------------------------------------
-    // --------------------------------------------------------------------------------------------
 
     fg.addTrivialSideEffectPass("Finish Color Passes", [&view](DriverApi& driver) {
         // Unbind SSAO sampler, b/c the FrameGraph will delete the texture at the end of the pass.
