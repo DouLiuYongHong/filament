@@ -46,15 +46,13 @@ fragment {
 
 // accurate box clipping
 #define BOX_CLIPPING_ACCURATE   0
-// always clip towards box center
-#define BOX_CLIPPING_CENTER     1
 // clamping instead of clipping
-#define BOX_CLIPPING_CLAMP      2
+#define BOX_CLIPPING_CLAMP      1
 // no clipping (for debugging only)
-#define BOX_CLIPPING_NONE       3
+#define BOX_CLIPPING_NONE       2
 
 #if defined(TARGET_MOBILE)
-#define BOX_CLIPPING            BOX_CLIPPING_CENTER
+#define BOX_CLIPPING            BOX_CLIPPING_ACCURATE
 #define USE_YCoCg               0
 #define PREVENT_FLICKERING      0
 #define FILTER_HISTORY          0
@@ -103,36 +101,14 @@ vec3 YCoCg_RGB(const vec3 c) {
 vec4 clipToBox(const int quality,
         const vec3 boxmin,  const vec3 boxmax, const vec4 c, const vec4 h) {
     const float epsilon = 0.0001;
+
     if (quality == BOX_CLIPPING_ACCURATE) {
         vec4 r = h - c;
-        vec3 rmax = (boxmax - c.rgb) + epsilon;
-        vec3 rmin = (boxmin - c.rgb) - epsilon;
-        if (r.r > rmax.r) {
-            r *= rmax.r / r.r;
-        } else if (r.r < rmin.r) {
-            r *= rmin.r / r.r;
-        }
-        if (r.g > rmax.g) {
-            r *= rmax.g / r.g;
-        } else if (r.g < rmin.g) {
-            r *= rmin.g / r.g;
-        }
-        if (r.b > rmax.b) {
-            r *= rmax.b / r.b;
-        } else if (r.b < rmin.b) {
-            r *= rmin.b / r.b;
-        }
-        return c + r;
-    } else if (quality == BOX_CLIPPING_CENTER) {
-        vec3 center = 0.5 * (boxmax + boxmin);
-        vec3 extent = 0.5 * (boxmax - boxmin) + epsilon;
-        vec4 v_clip = h - vec4(center, c.a);
-        vec3 a_unit = abs(v_clip.rgb * (1.0 / extent));
-        float ma_unit = max(a_unit.r, max(a_unit.g, a_unit.b));
-        if (ma_unit > 1.0) {
-            return vec4(center, c.a) + v_clip * (1.0 / ma_unit);
-        }
-        return h;
+        vec3 ir = 1.0 / (epsilon + r.rgb);
+        vec3 rmax = (boxmax - c.rgb) * ir;
+        vec3 rmin = (boxmin - c.rgb) * ir;
+        vec3 imax = max(rmax, rmin);
+        return c + r * saturate(min3(imax));
     } else if (quality == BOX_CLIPPING_CLAMP) {
         return vec4(clamp(h.rgb, boxmin, boxmax), h.a);
     }
